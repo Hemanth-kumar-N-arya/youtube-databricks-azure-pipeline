@@ -1,0 +1,11 @@
+# Copy this file to terraform.tfvars and fill in real values
+# terraform.tfvars is in .gitignore — never commit it
+
+subscription_id   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+tenant_id         = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+sp_client_id      = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# Override defaults if needed
+adls_account_name    = "adlsytpipelinedev001"
+cosmos_account_name  = "cosmos-ytpipeline-dev-001"
+function_app_name    = "func-ytpipeline-dev-001"
