@@ -120,3 +120,4 @@ logs/
 *.temp
 *.swp
 .databricks
+scecrets.txt
