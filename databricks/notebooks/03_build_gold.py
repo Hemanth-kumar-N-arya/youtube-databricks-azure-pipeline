@@ -2,27 +2,20 @@
 dbutils.widgets.text("adls_account_name", "adlsytpipelinedev001", "ADLS Account")
 adls_account = dbutils.widgets.get("adls_account_name")
 
+# Unity Catalog manages ADLS Gen2 access via External Locations
+# No Spark OAuth config needed — storage credential handles auth
+print('Storage access via Unity Catalog — account: ' + adls_account)
+
+
 print("=== Gold Aggregation Starting ===")
 
 # COMMAND ----------
-sp_client_id     = dbutils.secrets.get(scope="kv-scope", key="sp-client-id")
-sp_client_secret = dbutils.secrets.get(scope="kv-scope", key="sp-client-secret")
-tenant_id        = dbutils.secrets.get(scope="kv-scope", key="tenant-id")
 
 spark.conf.set(
-    f"fs.azure.account.auth.type.{adls_account}.dfs.core.windows.net", "OAuth")
 spark.conf.set(
-    f"fs.azure.account.oauth.provider.type.{adls_account}.dfs.core.windows.net",
-    "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider")
 spark.conf.set(
-    f"fs.azure.account.oauth2.client.id.{adls_account}.dfs.core.windows.net",
-    sp_client_id)
 spark.conf.set(
-    f"fs.azure.account.oauth2.client.secret.{adls_account}.dfs.core.windows.net",
-    sp_client_secret)
 spark.conf.set(
-    f"fs.azure.account.oauth2.client.endpoint.{adls_account}.dfs.core.windows.net",
-    f"https://login.microsoftonline.com/{tenant_id}/oauth2/token")
 
 print("Auth configured")
 
