@@ -11,13 +11,10 @@ print("=== Delta Optimizations Starting ===")
 
 # COMMAND ----------
 
-spark.conf.set(
-spark.conf.set(
-spark.conf.set(
-spark.conf.set(
-spark.conf.set(
-
-print("Auth configured")
+# Unity Catalog handles ADLS authentication automatically
+# No Spark OAuth config needed with Premium Databricks + External Locations
+print(f"Using ADLS account: {adls_account}")
+print("Storage access via Unity Catalog External Location")
 
 # COMMAND ----------
 spark.sql("""

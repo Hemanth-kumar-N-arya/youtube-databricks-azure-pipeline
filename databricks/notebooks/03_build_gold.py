@@ -2,22 +2,13 @@
 dbutils.widgets.text("adls_account_name", "adlsytpipelinedev001", "ADLS Account")
 adls_account = dbutils.widgets.get("adls_account_name")
 
-# Unity Catalog manages ADLS Gen2 access via External Locations
-# No Spark OAuth config needed — storage credential handles auth
-print('Storage access via Unity Catalog — account: ' + adls_account)
-
-
 print("=== Gold Aggregation Starting ===")
 
 # COMMAND ----------
-
-spark.conf.set(
-spark.conf.set(
-spark.conf.set(
-spark.conf.set(
-spark.conf.set(
-
-print("Auth configured")
+# Unity Catalog handles ADLS authentication automatically
+# No Spark OAuth config needed with Premium Databricks + External Locations
+print(f"Using ADLS account: {adls_account}")
+print("Storage access via Unity Catalog External Location")
 
 # COMMAND ----------
 from pyspark.sql import functions as F
