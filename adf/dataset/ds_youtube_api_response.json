@@ -1,0 +1,16 @@
+{
+  "name": "ds_youtube_api_response",
+  "properties": {
+    "type": "Json",
+    "linkedServiceName": {
+      "referenceName": "ls_youtube_api",
+      "type": "LinkedServiceReference"
+    },
+    "typeProperties": {
+      "location": {
+        "type": "HttpServerLocation",
+        "relativeUrl": "/youtube/v3/videos"
+      }
+    }
+  }
+}

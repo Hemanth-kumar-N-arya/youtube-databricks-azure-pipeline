@@ -1,0 +1,19 @@
+# This is a Databricks asset bundle definition for youtube-databricks-azure-pipeline.
+# The Databricks extension requires databricks.yml configuration file.
+# See https://docs.databricks.com/dev-tools/bundles/index.html for documentation.
+
+bundle:
+  name: youtube-databricks-azure-pipeline
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://adb-7405614625291861.1.azuredatabricks.net
+
+  ## Optionally, there could be 'staging' or 'prod' targets here.
+  #
+  # prod:
+  #   workspace:
+  #     host: https://adb-7405614625291861.1.azuredatabricks.net
