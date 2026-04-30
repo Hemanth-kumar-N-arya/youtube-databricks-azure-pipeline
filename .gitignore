@@ -119,3 +119,4 @@ logs/
 *.tmp
 *.temp
 *.swp
+.databricks

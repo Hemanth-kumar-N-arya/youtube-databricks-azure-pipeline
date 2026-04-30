@@ -1,0 +1,12 @@
+{
+  "name": "ls_youtube_api",
+  "type": "Microsoft.DataFactory/factories/linkedservices",
+  "properties": {
+    "type": "HttpServer",
+    "typeProperties": {
+      "url": "https://www.googleapis.com",
+      "enableServerCertificateValidation": true,
+      "authenticationType": "Anonymous"
+    }
+  }
+}

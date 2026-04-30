@@ -1,0 +1,243 @@
+{
+  "name": "pl_youtube_batch_ingestion",
+  "type": "Microsoft.DataFactory/factories/pipelines",
+  "properties": {
+    "description": "Full batch pipeline: fetch YouTube API → land in ADLS Gen2 → trigger Databricks Bronze/Silver/Gold/Optimize",
+    "parameters": {
+      "batch_date": {
+        "type": "String",
+        "defaultValue": "@formatDateTime(utcNow(), 'yyyy-MM-dd')"
+      },
+      "youtube_api_key": {
+        "type": "String"
+      },
+      "adls_account_name": {
+        "type": "String",
+        "defaultValue": "adlsytpipelinedev001"
+      }
+    },
+    "variables": {
+      "fetch_status": {
+        "type": "String",
+        "defaultValue": "pending"
+      }
+    },
+    "activities": [
+      {
+        "name": "get_youtube_api_key",
+        "description": "Fetch YouTube API key from Key Vault at runtime",
+        "type": "WebActivity",
+        "typeProperties": {
+          "url": "https://kv-ytpipeline-dev-001.vault.azure.net/secrets/youtube-api-key/?api-version=7.0",
+          "method": "GET",
+          "authentication": {
+            "type": "MSI",
+            "resource": "https://vault.azure.net"
+          }
+        }
+      },
+      {
+        "name": "fetch_youtube_trending",
+        "description": "Call YouTube Data API v3 to get trending videos",
+        "type": "WebActivity",
+        "dependsOn": [
+          {
+            "activity": "get_youtube_api_key",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "url": {
+            "value": "@concat('https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&chart=mostPopular&regionCode=US&maxResults=50&key=', activity('get_youtube_api_key').output.value)",
+            "type": "Expression"
+          },
+          "method": "GET"
+        }
+      },
+      {
+        "name": "write_raw_to_adls",
+        "description": "Write raw YouTube API response to ADLS Gen2",
+        "type": "WebActivity",
+        "dependsOn": [
+          {
+            "activity": "fetch_youtube_trending",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "url": {
+            "value": "@concat('https://adlsytpipelinedev001.dfs.core.windows.net/raw/youtube/', pipeline().parameters.batch_date, '/trending_videos_', pipeline().parameters.batch_date, '.json')",
+            "type": "Expression"
+          },
+          "method": "PUT",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-ms-version": "2020-04-08",
+            "x-ms-blob-type": "BlockBlob"
+          },
+          "body": {
+            "value": "@string(activity('fetch_youtube_trending').output)",
+            "type": "Expression"
+          },
+          "authentication": {
+            "type": "MSI",
+            "resource": "https://storage.azure.com/"
+          }
+        }
+      },
+      {
+        "name": "trigger_bronze_notebook",
+        "description": "Run Bronze ingestion notebook — raw JSON to Delta",
+        "type": "DatabricksNotebook",
+        "dependsOn": [
+          {
+            "activity": "write_raw_to_adls",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "linkedServiceName": {
+          "referenceName": "ls_databricks",
+          "type": "LinkedServiceReference"
+        },
+        "typeProperties": {
+          "notebookPath": "/youtube-pipeline/notebooks/01_ingest_raw",
+          "baseParameters": {
+            "batch_date": {
+              "value": "@pipeline().parameters.batch_date",
+              "type": "Expression"
+            },
+            "adls_account_name": {
+              "value": "@pipeline().parameters.adls_account_name",
+              "type": "Expression"
+            }
+          }
+        }
+      },
+      {
+        "name": "trigger_silver_notebook",
+        "description": "Run Silver transformation notebook",
+        "type": "DatabricksNotebook",
+        "dependsOn": [
+          {
+            "activity": "trigger_bronze_notebook",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "linkedServiceName": {
+          "referenceName": "ls_databricks",
+          "type": "LinkedServiceReference"
+        },
+        "typeProperties": {
+          "notebookPath": "/youtube-pipeline/notebooks/02_transform_silver",
+          "baseParameters": {
+            "batch_date": {
+              "value": "@pipeline().parameters.batch_date",
+              "type": "Expression"
+            },
+            "adls_account_name": {
+              "value": "@pipeline().parameters.adls_account_name",
+              "type": "Expression"
+            }
+          }
+        }
+      },
+      {
+        "name": "trigger_gold_notebook",
+        "description": "Run Gold aggregation notebook",
+        "type": "DatabricksNotebook",
+        "dependsOn": [
+          {
+            "activity": "trigger_silver_notebook",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "linkedServiceName": {
+          "referenceName": "ls_databricks",
+          "type": "LinkedServiceReference"
+        },
+        "typeProperties": {
+          "notebookPath": "/youtube-pipeline/notebooks/03_build_gold",
+          "baseParameters": {
+            "adls_account_name": {
+              "value": "@pipeline().parameters.adls_account_name",
+              "type": "Expression"
+            }
+          }
+        }
+      },
+      {
+        "name": "trigger_optimize_notebook",
+        "description": "Run Delta optimization notebook",
+        "type": "DatabricksNotebook",
+        "dependsOn": [
+          {
+            "activity": "trigger_gold_notebook",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "linkedServiceName": {
+          "referenceName": "ls_databricks",
+          "type": "LinkedServiceReference"
+        },
+        "typeProperties": {
+          "notebookPath": "/youtube-pipeline/notebooks/04_optimize_delta",
+          "baseParameters": {
+            "adls_account_name": {
+              "value": "@pipeline().parameters.adls_account_name",
+              "type": "Expression"
+            }
+          }
+        }
+      },
+      {
+        "name": "on_failure_alert",
+        "description": "Log failure details if any activity fails",
+        "type": "WebActivity",
+        "dependsOn": [
+          {
+            "activity": "trigger_bronze_notebook",
+            "dependencyConditions": [
+              "Failed"
+            ]
+          },
+          {
+            "activity": "trigger_silver_notebook",
+            "dependencyConditions": [
+              "Failed"
+            ]
+          },
+          {
+            "activity": "trigger_gold_notebook",
+            "dependencyConditions": [
+              "Failed"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "url": "https://kv-ytpipeline-dev-001.vault.azure.net/secrets/youtube-api-key/?api-version=7.0",
+          "method": "GET",
+          "authentication": {
+            "type": "MSI",
+            "resource": "https://vault.azure.net"
+          },
+          "body": {
+            "value": "@concat('{\"pipeline\":\"', pipeline().Pipeline, '\",\"runId\":\"', pipeline().RunId, '\",\"batch_date\":\"', pipeline().parameters.batch_date, '\",\"status\":\"FAILED\"}')",
+            "type": "Expression"
+          }
+        }
+      }
+    ]
+  }
+}

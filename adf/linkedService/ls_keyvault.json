@@ -1,0 +1,10 @@
+{
+  "name": "ls_keyvault",
+  "type": "Microsoft.DataFactory/factories/linkedservices",
+  "properties": {
+    "type": "AzureKeyVault",
+    "typeProperties": {
+      "baseUrl": "https://kv-ytpipeline-dev-001.vault.azure.net/"
+    }
+  }
+}
