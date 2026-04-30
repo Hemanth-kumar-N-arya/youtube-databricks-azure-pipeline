@@ -123,3 +123,9 @@ logs/
 scecrets.txt
 scecrets.txt
 scecrets.txt
+
+# Never commit secrets
+scecrets.txt
+secrets.txt
+*.secrets
+credentials.txt
