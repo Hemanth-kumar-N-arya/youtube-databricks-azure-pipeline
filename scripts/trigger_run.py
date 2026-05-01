@@ -4,7 +4,7 @@ import tempfile
 import os
 from datetime import datetime, timezone
 
-SUB_ID   = "84e688d7-af3e-499e-bb47-1f58997ddf23"
+SUB_ID   = os.environ.get("AZURE_SUBSCRIPTION_ID", "84e688d7-af3e-499e-bb47-1f58997ddf23")
 RG       = "rg-ytpipeline-dev-eastus"
 ADF_NAME = "adf-ytpipeline-dev"
 

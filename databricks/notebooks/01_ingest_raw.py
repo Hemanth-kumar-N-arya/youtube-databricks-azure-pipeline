@@ -20,13 +20,10 @@ print(f"ADLS account: {adls_account}")
 
 # COMMAND ----------
 
-spark.conf.set(
-spark.conf.set(
-spark.conf.set(
-spark.conf.set(
-spark.conf.set(
-
-print("ADLS Gen2 authentication configured")
+# Unity Catalog handles ADLS authentication automatically
+# No Spark OAuth config needed with Premium Databricks + External Locations
+print(f"Using ADLS account: {adls_account}")
+print("Storage access via Unity Catalog External Location")
 
 # COMMAND ----------
 from pyspark.sql import functions as F
