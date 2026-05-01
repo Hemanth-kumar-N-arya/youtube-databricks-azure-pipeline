@@ -5,6 +5,7 @@ import tempfile
 
 ADF_NAME = "adf-ytpipeline-dev"
 RG       = "rg-ytpipeline-dev-eastus"
+SUB_ID   = os.environ.get("AZURE_SUBSCRIPTION_ID", "84e688d7-af3e-499e-bb47-1f58997ddf23")
 
 def get_subscription_id():
     result = subprocess.run(
