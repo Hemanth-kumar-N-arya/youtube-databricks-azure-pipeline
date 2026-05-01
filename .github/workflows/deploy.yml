@@ -1,0 +1,271 @@
+name: YouTube Pipeline — CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:    # Allows manual trigger from GitHub UI
+
+env:
+  PYTHON_VERSION: "3.11"
+  TERRAFORM_VERSION: "1.5.0"
+  ADF_NAME: "adf-ytpipeline-dev"
+  RESOURCE_GROUP: "rg-ytpipeline-dev-eastus"
+  DATABRICKS_HOST: "https://adb-7405614625291861.1.azuredatabricks.net"
+  ADLS_ACCOUNT: "adlsytpipelinedev001"
+
+jobs:
+
+  # ─── Job 1: Validate code quality ───────────────────────────────
+  validate:
+    name: Validate Code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install linting tools
+        run: pip install flake8 black
+
+      - name: Check Python formatting
+        run: |
+          black --check databricks/notebooks/ scripts/ \
+            --line-length 100 \
+            --exclude "\.git"
+        continue-on-error: true
+
+      - name: Lint Python code
+        run: |
+          flake8 databricks/notebooks/ scripts/ \
+            --max-line-length 100 \
+            --ignore E501,W503,E302,E303 \
+            --exclude .git,__pycache__
+        continue-on-error: true
+
+      - name: Validate JSON files
+        run: |
+          python -c "
+          import json, os, sys
+          errors = []
+          for root, dirs, files in os.walk('adf'):
+              for f in files:
+                  if f.endswith('.json'):
+                      path = os.path.join(root, f)
+                      try:
+                          json.load(open(path, encoding='utf-8'))
+                          print(f'  VALID: {path}')
+                      except Exception as e:
+                          errors.append(f'  INVALID: {path} — {e}')
+          if errors:
+              print('\n'.join(errors))
+              sys.exit(1)
+          print('All JSON files valid')
+          "
+
+  # ─── Job 2: Terraform plan (on PR) ──────────────────────────────
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        working-directory: infra
+        env:
+          ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET:   ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+        run: terraform init
+
+      - name: Terraform Validate
+        working-directory: infra
+        run: terraform validate
+
+      - name: Terraform Plan
+        working-directory: infra
+        env:
+          ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET:   ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+          TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_tenant_id:       ${{ secrets.AZURE_TENANT_ID }}
+          TF_VAR_sp_client_id:    ${{ secrets.AZURE_CLIENT_ID }}
+        run: terraform plan -no-color
+        continue-on-error: true
+
+  # ─── Job 3: Deploy notebooks to Databricks ───────────────────────
+  deploy-notebooks:
+    name: Deploy Databricks Notebooks
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Databricks CLI
+        run: pip install databricks-cli
+
+      - name: Configure Databricks CLI
+        env:
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          databricks configure --token << EOF
+          ${{ env.DATABRICKS_HOST }}
+          ${{ secrets.DATABRICKS_TOKEN }}
+          EOF
+
+      - name: Create notebook folder in Databricks
+        run: |
+          databricks workspace mkdirs /youtube-pipeline/notebooks
+
+      - name: Deploy all notebooks
+        run: |
+          for notebook in databricks/notebooks/*.py; do
+            name=$(basename "$notebook" .py)
+            echo "Deploying: $name"
+            databricks workspace import \
+              "$notebook" \
+              "/youtube-pipeline/notebooks/$name" \
+              --language PYTHON \
+              --overwrite
+          done
+
+      - name: Verify notebooks deployed
+        run: databricks workspace ls /youtube-pipeline/notebooks
+
+  # ─── Job 4: Deploy ADF pipeline ─────────────────────────────────
+  deploy-adf:
+    name: Deploy ADF Pipeline
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+            }
+
+      - name: Deploy ADF resources
+        run: python scripts/adf_deploy.py
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+  # ─── Job 5: Terraform apply (on main push only) ──────────────────
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: [deploy-notebooks, deploy-adf]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        working-directory: infra
+        env:
+          ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET:   ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: infra
+        env:
+          ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET:   ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+          TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_tenant_id:       ${{ secrets.AZURE_TENANT_ID }}
+          TF_VAR_sp_client_id:    ${{ secrets.AZURE_CLIENT_ID }}
+        run: terraform apply -auto-approve
+
+  # ─── Job 6: Integration test ─────────────────────────────────────
+  integration-test:
+    name: Integration Test
+    runs-on: ubuntu-latest
+    needs: [deploy-notebooks, deploy-adf]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+            }
+
+      - name: Trigger pipeline test run
+        run: python scripts/trigger_run.py
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Verify ADF resources exist
+        run: |
+          az datafactory pipeline show \
+            --factory-name ${{ env.ADF_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name pl_youtube_batch_ingestion \
+            --query name \
+            --output tsv
