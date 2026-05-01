@@ -38,29 +38,38 @@ df_bronze = (
     .filter(F.col("_batch_date") == batch_date)
 )
 
-count = df_bronze.count()
-print(f"Bronze records for {batch_date}: {count}")
+print(f"Bronze records for {batch_date}: {df_bronze.count()}")
+print("Bronze schema:")
+df_bronze.printSchema()
 
-if count == 0:
-    dbutils.notebook.exit(f"WARNING: No bronze records for {batch_date}")
+# COMMAND ----------
+# The YouTube API response wraps videos inside an "items" array
+# ADF Web Activity also adds metadata columns at the top level
+# We need to explode the items array to get individual video records
+
+df_exploded = (
+    df_bronze
+    .select(F.explode(F.col("items")).alias("video"))
+)
+
+print(f"Videos after exploding items array: {df_exploded.count()}")
+print("Exploded schema:")
+df_exploded.printSchema()
 
 # COMMAND ----------
 df_silver = (
-    df_bronze.select(
-        F.col("id").alias("video_id"),
-        F.col("snippet.publishedAt").alias("published_at"),
-        F.col("snippet.channelId").alias("channel_id"),
-        F.col("snippet.title").alias("video_title"),
-        F.col("snippet.channelTitle").alias("channel_title"),
-        F.col("snippet.categoryId").alias("category_id"),
-        F.col("statistics.viewCount").cast("long").alias("view_count"),
-        F.col("statistics.likeCount").cast("long").alias("like_count"),
-        F.col("statistics.commentCount").cast("long").alias("comment_count"),
-        F.col("contentDetails.duration").alias("duration"),
-        F.col("contentDetails.definition").alias("definition"),
-        F.col("_ingested_at"),
-        F.col("_batch_date"),
-        F.col("_source_system"),
+    df_exploded.select(
+        F.col("video.id").alias("video_id"),
+        F.col("video.snippet.publishedAt").alias("published_at"),
+        F.col("video.snippet.channelId").alias("channel_id"),
+        F.col("video.snippet.title").alias("video_title"),
+        F.col("video.snippet.channelTitle").alias("channel_title"),
+        F.col("video.snippet.categoryId").alias("category_id"),
+        F.col("video.statistics.viewCount").cast("long").alias("view_count"),
+        F.col("video.statistics.likeCount").cast("long").alias("like_count"),
+        F.col("video.statistics.commentCount").cast("long").alias("comment_count"),
+        F.col("video.contentDetails.duration").alias("duration"),
+        F.col("video.contentDetails.definition").alias("definition"),
     )
     .withColumn("published_at",
         F.to_timestamp("published_at", "yyyy-MM-dd'T'HH:mm:ss'Z'"))
@@ -68,10 +77,10 @@ df_silver = (
     .withColumn("published_month", F.month("published_at"))
     .withColumn("published_date",  F.to_date("published_at"))
     .fillna({
-        "view_count":   0,
-        "like_count":   0,
-        "comment_count":0,
-        "definition":   "unknown"
+        "view_count":    0,
+        "like_count":    0,
+        "comment_count": 0,
+        "definition":    "unknown"
     })
     .withColumn("engagement_rate",
         F.round(
@@ -80,11 +89,13 @@ df_silver = (
         4))
     .withColumn("video_title",   F.trim("video_title"))
     .withColumn("channel_title", F.trim("channel_title"))
-    .withColumn("_silver_processed_at", F.current_timestamp())
-    .withColumn("_layer", F.lit("silver"))
+    .withColumn("_batch_date",            F.lit(batch_date))
+    .withColumn("_silver_processed_at",   F.current_timestamp())
+    .withColumn("_layer",                 F.lit("silver"))
 )
 
-print("Flattening complete")
+print(f"Silver records: {df_silver.count()}")
+df_silver.show(3)
 
 # COMMAND ----------
 window_spec = (
