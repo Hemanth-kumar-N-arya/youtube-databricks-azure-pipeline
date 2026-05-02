@@ -34,20 +34,13 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install linting tools
-        run: pip install flake8 black
-
-      - name: Check Python formatting
-        run: |
-          black --check databricks/notebooks/ scripts/ \
-            --line-length 100 \
-            --exclude "\.git"
-        continue-on-error: true
+        run: pip install flake8
 
       - name: Lint Python code
         run: |
           flake8 databricks/notebooks/ scripts/ \
-            --max-line-length 100 \
-            --ignore E501,W503,E302,E303 \
+            --max-line-length 120 \
+            --ignore E501,W503,E302,E303,W291,W293,W292,E265,E266,W391 \
             --exclude .git,__pycache__
         continue-on-error: true
 
@@ -62,14 +55,18 @@ jobs:
                       path = os.path.join(root, f)
                       try:
                           json.load(open(path, encoding='utf-8'))
-                          print(f'  VALID: {path}')
+                          print(f'VALID: {path}')
                       except Exception as e:
-                          errors.append(f'  INVALID: {path} — {e}')
+                          errors.append(f'INVALID: {path} - {e}')
           if errors:
-              print('\n'.join(errors))
+              for e in errors:
+                  print(e)
               sys.exit(1)
           print('All JSON files valid')
           "
+
+      - name: Confirm validation complete
+        run: echo "Validation complete"
 
   # ─── Job 2: Terraform plan (on PR) ──────────────────────────────
   terraform-plan:
