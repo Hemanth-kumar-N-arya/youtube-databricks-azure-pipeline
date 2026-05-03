@@ -131,7 +131,6 @@ jobs:
 
       - name: Configure Databricks CLI
         run: |
-          mkdir -p ~/.databrickscfg || true
           cat > ~/.databrickscfg << EOF
           [DEFAULT]
           host = ${{ env.DATABRICKS_HOST }}
