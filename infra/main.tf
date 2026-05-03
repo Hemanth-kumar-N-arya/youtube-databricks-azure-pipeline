@@ -27,3 +27,15 @@ module "databricks" {
   location                  = var.location
   tags                      = var.tags
 }
+module "monitor" {
+  source              = "./modules/monitor"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  environment         = var.environment
+  adf_id              = module.adf.adf_id
+  adls_id             = module.adls.storage_account_id
+  alert_email         = var.alert_email
+  tags                = var.tags
+
+  depends_on = [module.adf, module.adls]
+}

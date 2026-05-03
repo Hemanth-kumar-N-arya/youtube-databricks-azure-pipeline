@@ -74,3 +74,8 @@ variable "tags" {
     ManagedBy   = "Terraform"
   }
 }
+variable "alert_email" {
+  description = "Email address for pipeline failure alerts"
+  type        = string
+  default     = "hemanthkumar8867176160@email.com"
+}

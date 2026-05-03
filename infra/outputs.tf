@@ -17,3 +17,12 @@ output "adf_name" {
   description = "Azure Data Factory name"
   value       = module.adf.adf_name
 }
+output "monitor_action_group_id" {
+  description = "Azure Monitor action group ID for pipeline alerts"
+  value       = module.monitor.action_group_id
+}
+
+output "dashboard_id" {
+  description = "Azure Portal dashboard ID"
+  value       = module.monitor.dashboard_id
+}
