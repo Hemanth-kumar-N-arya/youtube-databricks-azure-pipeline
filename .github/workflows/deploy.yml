@@ -254,6 +254,11 @@ jobs:
       - name: Install ADF extension
         run: az extension add --name datafactory --yes
 
+      - name: Disable Azure CLI telemetry
+        run: |
+          az config set core.collect_telemetry=false
+          az config set core.only_show_errors=true
+
       - name: Trigger pipeline test run
         run: python scripts/trigger_run.py
         env:
