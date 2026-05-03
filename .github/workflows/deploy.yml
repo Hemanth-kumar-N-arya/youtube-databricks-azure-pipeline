@@ -7,7 +7,7 @@ on:
   pull_request:
     branches:
       - main
-  workflow_dispatch:    # Allows manual trigger from GitHub UI
+  workflow_dispatch:
 
 env:
   PYTHON_VERSION: "3.11"
@@ -19,7 +19,7 @@ env:
 
 jobs:
 
-  # ─── Job 1: Validate code quality ───────────────────────────────
+  # ─── Job 1: Validate ────────────────────────────────────────────
   validate:
     name: Validate Code
     runs-on: ubuntu-latest
@@ -68,7 +68,7 @@ jobs:
       - name: Confirm validation complete
         run: echo "Validation complete"
 
-  # ─── Job 2: Terraform plan (on PR) ──────────────────────────────
+  # ─── Job 2: Terraform Plan (PR only) ────────────────────────────
   terraform-plan:
     name: Terraform Plan
     runs-on: ubuntu-latest
@@ -100,17 +100,17 @@ jobs:
       - name: Terraform Plan
         working-directory: infra
         env:
-          ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET:   ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+          ARM_CLIENT_ID:          ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET:      ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID:    ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID:          ${{ secrets.AZURE_TENANT_ID }}
           TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           TF_VAR_tenant_id:       ${{ secrets.AZURE_TENANT_ID }}
           TF_VAR_sp_client_id:    ${{ secrets.AZURE_CLIENT_ID }}
         run: terraform plan -no-color
         continue-on-error: true
 
-  # ─── Job 3: Deploy notebooks to Databricks ───────────────────────
+  # ─── Job 3: Deploy Databricks Notebooks ─────────────────────────
   deploy-notebooks:
     name: Deploy Databricks Notebooks
     runs-on: ubuntu-latest
@@ -130,17 +130,16 @@ jobs:
         run: pip install databricks-cli
 
       - name: Configure Databricks CLI
-        env:
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
-          databricks configure --token << EOF
-          ${{ env.DATABRICKS_HOST }}
-          ${{ secrets.DATABRICKS_TOKEN }}
+          mkdir -p ~/.databrickscfg || true
+          cat > ~/.databrickscfg << EOF
+          [DEFAULT]
+          host = ${{ env.DATABRICKS_HOST }}
+          token = ${{ secrets.DATABRICKS_TOKEN }}
           EOF
 
-      - name: Create notebook folder in Databricks
-        run: |
-          databricks workspace mkdirs /youtube-pipeline/notebooks
+      - name: Create notebook folder
+        run: databricks workspace mkdirs /youtube-pipeline/notebooks
 
       - name: Deploy all notebooks
         run: |
@@ -157,7 +156,7 @@ jobs:
       - name: Verify notebooks deployed
         run: databricks workspace ls /youtube-pipeline/notebooks
 
-  # ─── Job 4: Deploy ADF pipeline ─────────────────────────────────
+  # ─── Job 4: Deploy ADF Pipeline ─────────────────────────────────
   deploy-adf:
     name: Deploy ADF Pipeline
     runs-on: ubuntu-latest
@@ -176,7 +175,7 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: |
+          creds: >-
             {
               "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
               "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
@@ -189,7 +188,7 @@ jobs:
         env:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-  # ─── Job 5: Terraform apply (on main push only) ──────────────────
+  # ─── Job 5: Terraform Apply (main push only) ────────────────────
   terraform-apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
@@ -217,16 +216,16 @@ jobs:
       - name: Terraform Apply
         working-directory: infra
         env:
-          ARM_CLIENT_ID:       ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET:   ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID:       ${{ secrets.AZURE_TENANT_ID }}
+          ARM_CLIENT_ID:          ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET:      ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID:    ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID:          ${{ secrets.AZURE_TENANT_ID }}
           TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           TF_VAR_tenant_id:       ${{ secrets.AZURE_TENANT_ID }}
           TF_VAR_sp_client_id:    ${{ secrets.AZURE_CLIENT_ID }}
         run: terraform apply -auto-approve
 
-  # ─── Job 6: Integration test ─────────────────────────────────────
+  # ─── Job 6: Integration Test ─────────────────────────────────────
   integration-test:
     name: Integration Test
     runs-on: ubuntu-latest
@@ -245,7 +244,7 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: |
+          creds: >-
             {
               "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
               "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
@@ -253,12 +252,15 @@ jobs:
               "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
             }
 
+      - name: Install ADF extension
+        run: az extension add --name datafactory --yes
+
       - name: Trigger pipeline test run
         run: python scripts/trigger_run.py
         env:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Verify ADF resources exist
+      - name: Verify ADF pipeline exists
         run: |
           az datafactory pipeline show \
             --factory-name ${{ env.ADF_NAME }} \
